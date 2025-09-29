@@ -26,39 +26,6 @@ class SimulationEvent:
         return self.time < other.time
 
 
-class DriverWorkTracker:
-    """Track individual driver work/rest cycles"""
-    def __init__(self, driver_id: str, zone: str, start_time: float):
-        self.driver_id = driver_id
-        self.zone = zone
-        self.is_working = True  # Start working
-        self.work_start_time = start_time
-        self.total_driving_time = 0.0
-        self.max_working_time = random.uniform(WORKING_TIME_MIN[0], WORKING_TIME_MIN[1]) * 60  # Convert to seconds
-        self.rest_duration = random.uniform(RESTING_TIME_MIN[0], RESTING_TIME_MIN[1]) * 60  # Convert to seconds
-        self.needs_rest_after_ride = False
-    
-    def add_driving_time(self, duration: float):
-        """Add driving time and check if rest is needed"""
-        self.total_driving_time += duration
-        if self.total_driving_time >= self.max_working_time:
-            self.needs_rest_after_ride = True
-    
-    def start_rest(self, current_time: float):
-        """Start rest period"""
-        self.is_working = False
-        self.rest_start_time = current_time
-        return current_time + self.rest_duration
-    
-    def finish_rest(self):
-        """Finish rest period and reset work cycle"""
-        self.is_working = True
-        self.total_driving_time = 0.0
-        self.max_working_time = random.uniform(WORKING_TIME_MIN[0], WORKING_TIME_MIN[1]) * 60
-        self.rest_duration = random.uniform(RESTING_TIME_MIN[0], RESTING_TIME_MIN[1]) * 60
-        self.needs_rest_after_ride = False
-
-
 class Simulation:
     def __init__(self):
         self.current_time = 0.0
@@ -70,9 +37,9 @@ class Simulation:
         self.zones = list(ZONES.keys())
         self.zone_id = self.map.zone_id
         
-        # Track drivers work/rest cycles
-        self.driver_trackers = {}
-        self._initialize_driver_trackers()
+        # Track drivers - now using combined Driver class
+        self.drivers = {}
+        self._initialize_drivers()
         
         self.statistics = {
             "total_requests": 0,
@@ -85,13 +52,13 @@ class Simulation:
         
         self._schedule_initial_events()
     
-    def _initialize_driver_trackers(self):
-        """Initialize driver work trackers"""
+    def _initialize_drivers(self):
+        """Initialize drivers with combined functionality"""
         driver_id = 0
         for zone, config in ZONES.items():
             for _ in range(config["num_drivers"]):
-                tracker = DriverWorkTracker(f"driver_{driver_id}", zone, self.current_time)
-                self.driver_trackers[f"driver_{driver_id}"] = tracker
+                driver = Driver(f"driver_{driver_id}", zone, self.current_time, WORKING_TIME_MIN, RESTING_TIME_MIN)
+                self.drivers[f"driver_{driver_id}"] = driver
                 driver_id += 1
     
     def _uniform_random(self, min_val: float, max_val: float) -> float:
@@ -121,9 +88,9 @@ class Simulation:
         return (distance / SPEED) * 3600
     
     def _get_available_driver_in_zone(self, zone: str):
-        """Get an available working driver in the zone"""
-        for driver_id, tracker in self.driver_trackers.items():
-            if tracker.zone == zone and tracker.is_working:
+        """Get an available working driver in the specified zone"""
+        for driver_id, driver in self.drivers.items():
+            if driver.zone == zone and driver.is_working:
                 return driver_id
         return None
     
@@ -166,8 +133,8 @@ class Simulation:
             
             # Calculate travel time and add to driver's working time
             travel_time = self._calculate_travel_time(origin, destination)
-            driver_tracker = self.driver_trackers[available_driver_id]
-            driver_tracker.add_driving_time(travel_time)
+            driver = self.drivers[available_driver_id]
+            driver.add_driving_time(travel_time)
             
             # Schedule ride completion
             completion_event = SimulationEvent(
@@ -188,7 +155,7 @@ class Simulation:
         destination = data["destination"]
         driver_id = data["driver_id"]
         
-        print(f"Time {self.current_time:.2f}: Ride completed from {origin} to {destination} by {driver_id}")
+        print(f"Time {self.current_time:.2f}: Ride completed by {driver_id} ({origin} -> {destination})")
         self.statistics["completed_rides"] += 1
         
         # Apply EndRequest event to state
@@ -197,44 +164,40 @@ class Simulation:
         self._transition_to_state(new_state, f"EndRequest ({origin} -> {destination})")
         
         # Update driver location
-        driver_tracker = self.driver_trackers[driver_id]
-        driver_tracker.zone = destination
+        driver = self.drivers[driver_id]
+        driver.zone = destination
         
         # Check if driver needs rest after working time exceeded
-        if driver_tracker.needs_rest_after_ride:
-            print(f"Time {self.current_time:.2f}: {driver_id} needs rest after {driver_tracker.total_driving_time/60:.1f} minutes of driving")
+        if driver.needs_rest_after_ride:
+            print(f"Time {self.current_time:.2f}: {driver_id} needs rest after ride")
             
             # Make driver go offline
-            driver = Driver(destination)
             new_state = driver.offline(self.current_state)
-            self._transition_to_state(new_state, f"OfflineDriver ({destination}) - Rest needed")
+            self._transition_to_state(new_state, f"OfflineDriver ({driver_id} in {destination})")
             
             # Schedule driver to come back online after rest
-            rest_end_time = driver_tracker.start_rest(self.current_time)
+            rest_end_time = driver.start_rest(self.current_time)
             self.statistics["driver_rest_periods"] += 1
             
-            rest_end_event = SimulationEvent(
+            rest_event = SimulationEvent(
                 time=rest_end_time,
-                event_type="driver_back_online",
+                event_type="driver_rest_end",
                 data={"driver_id": driver_id, "zone": destination}
             )
-            heapq.heappush(self.event_queue, rest_end_event)
+            heapq.heappush(self.event_queue, rest_event)
     
-    def _handle_driver_back_online(self, event: SimulationEvent):
-        """Handle driver coming back online after rest"""
-        data = event.data
-        driver_id = data["driver_id"]
-        zone = data["zone"]
+    def _handle_driver_rest_end(self, event: SimulationEvent):
+        """Handle driver finishing rest period"""
+        driver_id = event.data["driver_id"]
+        zone = event.data["zone"]
         
-        driver_tracker = self.driver_trackers[driver_id]
-        driver_tracker.finish_rest()
+        print(f"Time {self.current_time:.2f}: {driver_id} finished rest in zone {zone}")
         
-        print(f"Time {self.current_time:.2f}: {driver_id} back online in zone {zone} after rest")
+        driver = self.drivers[driver_id]
+        driver.finish_rest(WORKING_TIME_MIN, RESTING_TIME_MIN)
         
-        # Make driver go online
-        driver = Driver(zone)
         new_state = driver.online(self.current_state)
-        self._transition_to_state(new_state, f"OnlineDriver ({zone}) - After rest")
+        self._transition_to_state(new_state, f"OnlineDriver ({driver_id} in {zone})")
     
     def _transition_to_state(self, new_state: State, event_description: str):
         """Transition to a new state"""
@@ -262,8 +225,8 @@ class Simulation:
                 self._handle_request_arrival(event)
             elif event.event_type == "ride_completion":
                 self._handle_ride_completion(event)
-            elif event.event_type == "driver_back_online":
-                self._handle_driver_back_online(event)
+            elif event.event_type == "driver_rest_end":
+                self._handle_driver_rest_end(event)
         
         print("=== Simulation Completed ===")
         self._print_statistics()
@@ -286,9 +249,9 @@ class Simulation:
         
         # Print driver status
         print(f"\nDriver Status:")
-        for driver_id, tracker in self.driver_trackers.items():
-            status = "Working" if tracker.is_working else "Resting"
-            print(f"{driver_id}: {status} in zone {tracker.zone}, driving time: {tracker.total_driving_time/60:.1f}min")
+        for driver_id, driver in self.drivers.items():
+            status = "Working" if driver.is_working else "Resting"
+            print(f"{driver_id}: {status} in zone {driver.zone}, driving time: {driver.total_driving_time/60:.1f}min")
         
         # Print final driver distribution
         print(f"\nFinal driver distribution:")
