@@ -11,7 +11,7 @@ from typing import List, Dict, Tuple
 from models.request import Request
 from models.drivers import Driver
 from models.event import Event as MapEvent
-from config import ZONES, DISTANCES, SIM_END_SEC, SPEED, ACCEPTANCE_PROB, WORKING_TIME_MIN, RESTING_TIME_MIN
+from config import ZONES, SERVICE_RATES, SIM_END_SEC, ACCEPTANCE_PROB, WORK_TO_REST_RATE, REST_TO_WORK_RATE
 from models.state import State
 from map import Map
 
@@ -37,7 +37,7 @@ class Simulation:
         self.zones = list(ZONES.keys())
         self.zone_id = self.map.zone_id
         
-        # Track drivers - now using combined Driver class
+        # Track drivers
         self.drivers = {}
         self._initialize_drivers()
         
@@ -53,17 +53,27 @@ class Simulation:
         self._schedule_initial_events()
     
     def _initialize_drivers(self):
-        """Initialize drivers with combined functionality"""
+        """Initialize drivers with exponential work/rest cycles"""
         driver_id = 0
         for zone, config in ZONES.items():
             for _ in range(config["num_drivers"]):
-                driver = Driver(f"driver_{driver_id}", zone, self.current_time, WORKING_TIME_MIN, RESTING_TIME_MIN)
+                driver = Driver(f"driver_{driver_id}", zone, self.current_time)
                 self.drivers[f"driver_{driver_id}"] = driver
+                
+                # Schedule first work/rest transition
+                self._schedule_driver_transition(driver)
                 driver_id += 1
     
-    def _uniform_random(self, min_val: float, max_val: float) -> float:
-        """Generate uniformly distributed random number"""
-        return random.uniform(min_val, max_val)
+    def _schedule_driver_transition(self, driver):
+        """Schedule next work/rest transition for driver"""
+        if driver.next_transition_time and driver.next_transition_time < SIM_END_SEC:
+            event_type = "driver_rest_start" if driver.is_working else "driver_rest_end"
+            event = SimulationEvent(
+                time=driver.next_transition_time,
+                event_type=event_type,
+                data={"driver_id": driver.driver_id, "zone": driver.zone}
+            )
+            heapq.heappush(self.event_queue, event)
     
     def _schedule_initial_events(self):
         """Schedule initial request arrival events for each zone"""
@@ -78,14 +88,9 @@ class Simulation:
                     )
                     heapq.heappush(self.event_queue, event)
     
-    def _exponential_random(self, lambda_rate: float) -> float:
-        """Generate exponentially distributed random number"""
-        return -1 * (1.0 / lambda_rate) * math.log(random.random())
-    
-    def _calculate_travel_time(self, origin: str, destination: str) -> float:
-        """Calculate travel time between zones in seconds"""
-        distance = DISTANCES[origin][destination]
-        return (distance / SPEED) * 3600
+    def _exponential_random(self, rate: float) -> float:
+        """Generate exponentially distributed random number with given rate"""
+        return -math.log(random.random()) / rate
     
     def _get_available_driver_in_zone(self, zone: str):
         """Get an available working driver in the specified zone"""
@@ -93,6 +98,11 @@ class Simulation:
             if driver.zone == zone and driver.is_working:
                 return driver_id
         return None
+
+    def _cancel_driver_transition(self, driver_id: str):
+        """Cancel any scheduled transition for a driver (when they start a ride)"""
+        driver = self.drivers[driver_id]
+        driver.next_transition_time = None  # Mark as cancelled
     
     def _handle_request_arrival(self, event: SimulationEvent):
         """Handle new request arrival"""
@@ -131,10 +141,16 @@ class Simulation:
             new_state = request.start_request(self.current_state)
             self._transition_to_state(new_state, f"StartRequest ({origin} -> {destination})")
             
-            # Calculate travel time and add to driver's working time
-            travel_time = self._calculate_travel_time(origin, destination)
+            service_rate = SERVICE_RATES[origin][destination]
+            travel_time = self._exponential_random(service_rate)
+            
             driver = self.drivers[available_driver_id]
             driver.add_driving_time(travel_time)
+            
+            print(f"  Travel time: {travel_time:.1f} seconds")
+            
+            # Cancel exponential transition while driving
+            self._cancel_driver_transition(available_driver_id)
             
             # Schedule ride completion
             completion_event = SimulationEvent(
@@ -167,37 +183,71 @@ class Simulation:
         driver = self.drivers[driver_id]
         driver.zone = destination
         
-        # Check if driver needs rest after working time exceeded
-        if driver.needs_rest_after_ride:
-            print(f"Time {self.current_time:.2f}: {driver_id} needs rest after ride")
-            
-            # Make driver go offline
-            new_state = driver.offline(self.current_state)
-            self._transition_to_state(new_state, f"OfflineDriver ({driver_id} in {destination})")
-            
-            # Schedule driver to come back online after rest
-            rest_end_time = driver.start_rest(self.current_time)
-            self.statistics["driver_rest_periods"] += 1
-            
-            rest_event = SimulationEvent(
-                time=rest_end_time,
-                event_type="driver_rest_end",
-                data={"driver_id": driver_id, "zone": destination}
-            )
-            heapq.heappush(self.event_queue, rest_event)
+        # 🔥 CRITICAL: Resume exponential transitions after ride
+        driver._schedule_next_transition(self.current_time)
+        self._schedule_driver_transition(driver)
     
-    def _handle_driver_rest_end(self, event: SimulationEvent):
-        """Handle driver finishing rest period"""
+    def _handle_driver_rest_start(self, event: SimulationEvent):
+        """Handle driver starting rest (work → rest transition)"""
         driver_id = event.data["driver_id"]
         zone = event.data["zone"]
         
-        print(f"Time {self.current_time:.2f}: {driver_id} finished rest in zone {zone}")
+        driver = self.drivers[driver_id]
+        
+        # 🔥 VALIDATION: Check if transition is still valid
+        if driver.next_transition_time is None or driver.next_transition_time != event.time:
+            print(f"Time {self.current_time:.2f}: Cancelled rest transition for {driver_id} (was on a ride)")
+            return
+        
+        # 🔥 VALIDATION: Check if driver is in expected zone
+        if driver.zone != zone:
+            print(f"Time {self.current_time:.2f}: {driver_id} moved zones, rescheduling transition")
+            driver._schedule_next_transition(self.current_time)
+            self._schedule_driver_transition(driver)
+            return
+        
+        if driver.is_working:
+            print(f"Time {self.current_time:.2f}: {driver_id} starts rest in zone {zone}")
+            
+            # Transition driver state
+            driver.transition_state(self.current_time)
+            
+            # Update system state
+            new_state = driver.offline(self.current_state)
+            self._transition_to_state(new_state, f"OfflineDriver ({driver_id} in {zone})")
+            
+            # Schedule next transition (rest → work)
+            self._schedule_driver_transition(driver)
+    
+    def _handle_driver_rest_end(self, event: SimulationEvent):
+        """Handle driver finishing rest (rest → work transition)"""
+        driver_id = event.data["driver_id"]
+        zone = event.data["zone"]
         
         driver = self.drivers[driver_id]
-        driver.finish_rest(WORKING_TIME_MIN, RESTING_TIME_MIN)
         
-        new_state = driver.online(self.current_state)
-        self._transition_to_state(new_state, f"OnlineDriver ({driver_id} in {zone})")
+        if driver.next_transition_time is None or driver.next_transition_time != event.time:
+            print(f"Time {self.current_time:.2f}: Cancelled work transition for {driver_id}")
+            return
+        
+        if driver.zone != zone:
+            print(f"Time {self.current_time:.2f}: {driver_id} moved zones, rescheduling transition")
+            driver._schedule_next_transition(self.current_time)
+            self._schedule_driver_transition(driver)
+            return
+        
+        if not driver.is_working:
+            print(f"Time {self.current_time:.2f}: {driver_id} finished rest in zone {zone}")
+            
+            # Transition driver state
+            driver.transition_state(self.current_time)
+            
+            # Update system state
+            new_state = driver.online(self.current_state)
+            self._transition_to_state(new_state, f"OnlineDriver ({driver_id} in {zone})")
+            
+            # Schedule next transition (work → rest)
+            self._schedule_driver_transition(driver)
     
     def _transition_to_state(self, new_state: State, event_description: str):
         """Transition to a new state"""
@@ -209,7 +259,7 @@ class Simulation:
         self.statistics["state_transitions"] += 1
     
     def run(self):
-        """Run the simulation"""
+        """Run the simulation with new event types"""
         print("=== Simulation Started ===")
         print(f"Initial state: {self.current_state}")
         print(f"Total possible states: {len(self.map.states)}")
@@ -225,6 +275,8 @@ class Simulation:
                 self._handle_request_arrival(event)
             elif event.event_type == "ride_completion":
                 self._handle_ride_completion(event)
+            elif event.event_type == "driver_rest_start":
+                self._handle_driver_rest_start(event)
             elif event.event_type == "driver_rest_end":
                 self._handle_driver_rest_end(event)
         

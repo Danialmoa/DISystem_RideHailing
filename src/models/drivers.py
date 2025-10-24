@@ -1,13 +1,13 @@
 import random
+import math
 from models.state import State
+from config import WORK_TO_REST_RATE, REST_TO_WORK_RATE, MEAN_WORK_TIME_SEC, MEAN_REST_TIME_SEC
 
 class Driver:
     """
-    This class is for the drivers, 
-    it has the zone and the state of the driver, and the function to online and offline the driver,
-    and the function to start and end the ride
+    Driver with exponential work/rest cycles
     """
-    def __init__(self, driver_id: str, zone: str, start_time: float, working_time_min: tuple, resting_time_min: tuple):
+    def __init__(self, driver_id: str, zone: str, start_time: float):
         self.driver_id = driver_id
         self.zone = zone
         self.zone_id = {
@@ -16,44 +16,88 @@ class Driver:
             "C": 2
         }
         
-        # Work/rest cycle tracking
+        # Exponential rates
+        self.work_to_rest_rate = WORK_TO_REST_RATE
+        self.rest_to_work_rate = REST_TO_WORK_RATE
+        
+        # Driver state
         self.is_working = True
-        self.work_start_time = start_time
+        self.cycle_start_time = start_time
+        self.next_transition_time = None
+        
         self.total_driving_time = 0.0
-        self.max_working_time = random.uniform(working_time_min[0], working_time_min[1]) * 60
-        self.rest_duration = random.uniform(resting_time_min[0], resting_time_min[1]) * 60
-        self.needs_rest_after_ride = False
+        
+        # Schedule first transition
+        self._schedule_next_transition(start_time)
+    
+    def _exponential_random(self, rate: float) -> float:
+        """Generate exponential random time with given rate"""
+        return -math.log(random.random()) / rate
+    
+    def _schedule_next_transition(self, current_time: float):
+        """Schedule next work/rest transition"""
+        if self.is_working:
+            # Currently working → schedule rest transition
+            duration = self._exponential_random(self.work_to_rest_rate)
+        else:
+            # Currently resting → schedule work transition
+            duration = self._exponential_random(self.rest_to_work_rate)
+        
+        self.next_transition_time = current_time + duration
+    
+    def should_transition_now(self, current_time: float) -> bool:
+        """Check if driver should transition work/rest state"""
+        return self.next_transition_time and current_time >= self.next_transition_time
+    
+    def transition_state(self, current_time: float):
+        """Transition between work and rest"""
+        self.is_working = not self.is_working
+        self.cycle_start_time = current_time
+        
+        # Schedule next transition
+        self._schedule_next_transition(current_time)
+        
+        print(f"Driver {self.driver_id}: {'work' if self.is_working else 'rest'} transition at time {current_time:.2f}")
+    
+    def get_next_transition_time(self) -> float:
+        """Get time of next scheduled transition"""
+        return self.next_transition_time
+    
+    def get_transition_type(self) -> str:
+        """Get type of next transition"""
+        return "go_rest" if self.is_working else "go_work"
+    
+    def add_driving_time(self, duration: float):
+        """Add driving time"""
+        self.total_driving_time += duration
+    
+    def start_rest(self, current_time: float):
+        """Not used in exponential model"""
+        return current_time + self._exponential_random(self.rest_to_work_rate)
 
     def online(self, state: State):
-        """ To online the driver """
+        """Make driver online"""
         copy_state = state.copy()
-        copy_state.matrix_drivers_offline[self.zone_id[self.zone]][self.zone_id[self.zone]] -= 1
-        copy_state.matrix_drivers_online[self.zone_id[self.zone]][self.zone_id[self.zone]] += 1
+        zone_id = self.zone_id[self.zone]
+        if copy_state.matrix_drivers_offline[zone_id][zone_id] > 0:
+            copy_state.matrix_drivers_offline[zone_id][zone_id] -= 1
+            copy_state.matrix_drivers_online[zone_id][zone_id] += 1
         return copy_state
 
     def offline(self, state: State):
-        """ To offline the driver """
+        """Make driver offline"""
         copy_state = state.copy()
-        copy_state.matrix_drivers_online[self.zone_id[self.zone]][self.zone_id[self.zone]] -= 1
-        copy_state.matrix_drivers_offline[self.zone_id[self.zone]][self.zone_id[self.zone]] += 1
+        zone_id = self.zone_id[self.zone]
+        if copy_state.matrix_drivers_online[zone_id][zone_id] > 0:
+            copy_state.matrix_drivers_online[zone_id][zone_id] -= 1
+            copy_state.matrix_drivers_offline[zone_id][zone_id] += 1
         return copy_state
     
-    def add_driving_time(self, duration: float):
-        """Add driving time and check if rest is needed"""
-        self.total_driving_time += duration
-        if self.total_driving_time >= self.max_working_time:
-            self.needs_rest_after_ride = True
-    
-    def start_rest(self, current_time: float):
-        """Start rest period"""
-        self.is_working = False
-        self.rest_start_time = current_time
-        return current_time + self.rest_duration
-    
-    def finish_rest(self, working_time_min: tuple, resting_time_min: tuple):
-        """Finish rest period and reset work cycle"""
-        self.is_working = True
-        self.total_driving_time = 0.0
-        self.max_working_time = random.uniform(working_time_min[0], working_time_min[1]) * 60
-        self.rest_duration = random.uniform(resting_time_min[0], resting_time_min[1]) * 60
-        self.needs_rest_after_ride = False
+    def get_rates(self):
+        """Get exponential rates for steady-state analysis"""
+        return {
+            'work_to_rest_rate': self.work_to_rest_rate,
+            'rest_to_work_rate': self.rest_to_work_rate,
+            'mean_work_time': MEAN_WORK_TIME_SEC,
+            'mean_rest_time': MEAN_REST_TIME_SEC
+        }
