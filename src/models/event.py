@@ -8,7 +8,7 @@ from models.state import State
 
 
 class Event:
-    def __init__(self, from_state: State, to_state: State, event_type: str, event_text: str, from_state_id: int, to_state_id: int):
+    def __init__(self, from_state: State, to_state: State, event_type: str, event_text: str, from_state_id: int, to_state_id: int, info: dict):
         self.from_state = from_state
         self.to_state = to_state
         self.event_type = event_type
@@ -16,6 +16,8 @@ class Event:
         
         self.from_state_id = from_state_id
         self.to_state_id = to_state_id
+        
+        self.info = info
     
     def __str__(self):
         return f"Event(from_state=({self.from_state_id}){self.from_state} , to_state=({self.to_state_id}){self.to_state}, event_type={self.event_type}, event_text={self.event_text})"

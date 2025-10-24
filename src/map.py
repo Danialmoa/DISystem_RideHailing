@@ -12,8 +12,6 @@ from models.drivers import Driver
 from config import ZONES
 
 import networkx as nx
-import streamlit as st
-import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 from itertools import combinations
 
@@ -98,16 +96,19 @@ class Map:
                                 # Accept request
                                 new_state = Request(origin_zone, destination_zone).start_request(state)
                                 text = f"Start request ({origin_zone} -> {destination_zone})"
+                                info = {"origin_zone": origin_zone, "destination_zone": destination_zone}
                             elif state.matrix_drivers_online[self.zone_id[origin_zone]][self.zone_id[origin_zone]] == 0:
                                 # Not accept request -> state fixed
                                 new_state = state
                                 text = f"No drivers in zone ({origin_zone} -> {destination_zone})"
+                                info = {"origin_zone": origin_zone, "destination_zone": destination_zone}
                             else:
                                 # Not accept request -> state fixed
                                 new_state = state
                                 text = f"Not accept request ({origin_zone} -> {destination_zone})"
+                                info = {"origin_zone": origin_zone, "destination_zone": destination_zone}
                             new_state_id = self.find_state_id(new_state)
-                            all_possible_events.append(Event(state, new_state, event, text, state_id, new_state_id))
+                            all_possible_events.append(Event(state, new_state, event, text, state_id, new_state_id, info))
 
             elif event == "EndRequest":
                 for origin_zone in self.zones:
@@ -116,26 +117,29 @@ class Map:
                             if state.matrix_drivers_online[self.zone_id[origin_zone]][self.zone_id[destination_zone]] > 0:
                                 new_state = Request(origin_zone, destination_zone).end_request(state)
                                 text = f"End request ({origin_zone} -> {destination_zone})"
+                                info = {"origin_zone": origin_zone, "destination_zone": destination_zone}
                                 new_state_id = self.find_state_id(new_state)
-                                all_possible_events.append(Event(state, new_state, event, text, state_id, new_state_id))
+                                all_possible_events.append(Event(state, new_state, event, text, state_id, new_state_id, info))
             
             elif event == "OnlineDriver":
                 for zone in self.zones:
                     if state.matrix_drivers_offline[self.zone_id[zone]][self.zone_id[zone]] > 0:
-                        new_state = Driver(zone).online(state)
+                        new_state = Driver("NA", zone, 0).online(state)
                         text = f"Online driver ({zone})"
+                        info = {"zone": zone}
                         new_state_id = self.find_state_id(new_state)
-                        all_possible_events.append(Event(state, new_state, event, text, state_id, new_state_id))
+                        all_possible_events.append(Event(state, new_state, event, text, state_id, new_state_id, info))
             
             elif event == "OfflineDriver":
                 for zone in self.zones:
                     if state.matrix_drivers_online[self.zone_id[zone]][self.zone_id[zone]] > 0:
-                        new_state = Driver(zone).offline(state)
+                        new_state = Driver("NA", zone, 0).offline(state)
                         text = f"Offline driver ({zone})"
+                        info = {"zone": zone}
                         new_state_id = self.find_state_id(new_state)
-                        all_possible_events.append(Event(state, new_state, event, text, state_id, new_state_id))
+                        all_possible_events.append(Event(state, new_state, event, text, state_id, new_state_id, info))
             
-        print("All possible events: ", all_possible_events)
+        #print("All possible events: ", all_possible_events)
         return all_possible_events
     
     def add_possible_events(self, state: State):

@@ -16,11 +16,11 @@ SERVICE_RATES = {
     "C": {"A": 1/900, "B": 1/675},    # C→A: mean 900sec (15min), C→B: mean 675sec (11.25min)
 }
 
-# Exponential work/rest parameters
-MEAN_WORK_HOURS = 1.5      # 1.5 hours average work time
-MEAN_REST_MINUTES = 25     # 25 minutes average rest time
+# Exponential work/rest p2arameters
+MEAN_WORK_HOURS = 20      # 20 minutes average waiting time
+MEAN_REST_MINUTES = 15     # 30 minutes average rest time
 
-MEAN_WORK_TIME_SEC = MEAN_WORK_HOURS * 3600 
+MEAN_WORK_TIME_SEC = MEAN_WORK_HOURS * 60 
 MEAN_REST_TIME_SEC = MEAN_REST_MINUTES * 60
 
 WORK_TO_REST_RATE = 1.0 / MEAN_WORK_TIME_SEC
@@ -28,4 +28,5 @@ REST_TO_WORK_RATE = 1.0 / MEAN_REST_TIME_SEC
 
 ACCEPTANCE_PROB = 0.7
 
-SIM_END_SEC = 3600 * 8
+SIM_END_SEC = 3600 * 100
+

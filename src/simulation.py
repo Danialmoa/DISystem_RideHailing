@@ -6,6 +6,7 @@ sys.path.append(current_dir)
 import heapq
 import random
 import math
+import matplotlib.pyplot as plt
 from typing import List, Dict, Tuple
 
 from models.request import Request
@@ -49,6 +50,16 @@ class Simulation:
             "state_transitions": 0,
             "driver_rest_periods": 0
         }
+        
+        # Add state time tracking
+        self.state_times = {}  # Maps state_id -> total time spent
+        self.last_state_id = None
+        self.last_transition_time = 0.0
+        self.state_history_snapshots = []
+        
+        self.last_state_id = self.map.find_state_id(self.current_state)
+        self.last_transition_time = 0.0
+        self.state_history_snapshots = []
         
         self._schedule_initial_events()
     
@@ -183,7 +194,7 @@ class Simulation:
         driver = self.drivers[driver_id]
         driver.zone = destination
         
-        # 🔥 CRITICAL: Resume exponential transitions after ride
+        # Resume exponential transitions after ride
         driver._schedule_next_transition(self.current_time)
         self._schedule_driver_transition(driver)
     
@@ -194,12 +205,10 @@ class Simulation:
         
         driver = self.drivers[driver_id]
         
-        # 🔥 VALIDATION: Check if transition is still valid
         if driver.next_transition_time is None or driver.next_transition_time != event.time:
             print(f"Time {self.current_time:.2f}: Cancelled rest transition for {driver_id} (was on a ride)")
             return
         
-        # 🔥 VALIDATION: Check if driver is in expected zone
         if driver.zone != zone:
             print(f"Time {self.current_time:.2f}: {driver_id} moved zones, rescheduling transition")
             driver._schedule_next_transition(self.current_time)
@@ -215,9 +224,8 @@ class Simulation:
             # Update system state
             new_state = driver.offline(self.current_state)
             self._transition_to_state(new_state, f"OfflineDriver ({driver_id} in {zone})")
-            
-            # Schedule next transition (rest → work)
             self._schedule_driver_transition(driver)
+            
     
     def _handle_driver_rest_end(self, event: SimulationEvent):
         """Handle driver finishing rest (rest → work transition)"""
@@ -245,17 +253,25 @@ class Simulation:
             # Update system state
             new_state = driver.online(self.current_state)
             self._transition_to_state(new_state, f"OnlineDriver ({driver_id} in {zone})")
-            
-            # Schedule next transition (work → rest)
             self._schedule_driver_transition(driver)
+            
     
     def _transition_to_state(self, new_state: State, event_description: str):
         """Transition to a new state"""
         old_state_id = self.map.find_state_id(self.current_state)
         new_state_id = self.map.find_state_id(new_state)
         
+        # Track time spent in old state
+        if self.last_state_id is not None:
+            time_in_state = self.current_time - self.last_transition_time
+            if self.last_state_id not in self.state_times:
+                self.state_times[self.last_state_id] = 0.0
+            self.state_times[self.last_state_id] += time_in_state
+        
         print(f"State transition: {old_state_id} -> {new_state_id} ({event_description})")
         self.current_state = new_state
+        self.last_state_id = new_state_id
+        self.last_transition_time = self.current_time
         self.statistics["state_transitions"] += 1
     
     def run(self):
@@ -279,7 +295,12 @@ class Simulation:
                 self._handle_driver_rest_start(event)
             elif event.event_type == "driver_rest_end":
                 self._handle_driver_rest_end(event)
+                            
+            self.update_plot_live()
         
+        
+        plt.ioff()
+        plt.savefig('state_convergence.png', dpi=300, bbox_inches='tight')
         print("=== Simulation Completed ===")
         self._print_statistics()
     
@@ -318,8 +339,45 @@ class Simulation:
             print(f"Zone {zone}: {zone_online} online, {zone_offline} offline")
         
         print(f"Total: {total_online} online, {total_offline} offline")
-
-
+        print(f"State times: {self.state_times}")
+        
+        for state_id, time in self.state_times.items():
+            print(f"State {state_id}: {time/SIM_END_SEC}")
+    
+    def update_plot_live(self):
+        """Update live plot of state time distribution"""
+        if not self.state_times:
+            return
+        
+        total_time = sum(self.state_times.values())
+        current_percentages = {state_id: (time / total_time) * 100 
+                            for state_id, time in self.state_times.items()}
+        
+        self.state_history_snapshots.append((self.current_time, current_percentages.copy()))
+        
+        plt.clf()
+        
+        all_state_ids = sorted(set(sid for _, pcts in self.state_history_snapshots for sid in pcts.keys()))
+        
+        for state_id in all_state_ids:
+            times = []
+            percentages = []
+            for t, pcts in self.state_history_snapshots:
+                times.append(t)
+                percentages.append(pcts.get(state_id, 0))
+            
+            plt.plot(times, percentages, label=f'State {state_id + 1}', linewidth=2, alpha=0.8)
+        
+        plt.xlabel('Simulation Time (seconds)', fontsize=12)
+        plt.ylabel('Time Spent (%)', fontsize=12)
+        plt.title('State Probability Convergence to Steady State', fontsize=14, fontweight='bold')
+        plt.ylim(0, 100)
+        plt.grid(True, alpha=0.3)
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+        plt.tight_layout()
+        plt.pause(0.0001)
+        
+        
 if __name__ == "__main__":
     sim = Simulation()
     sim.run()
