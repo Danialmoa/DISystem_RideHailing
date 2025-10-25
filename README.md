@@ -26,3 +26,7 @@ The system is modeled as a Continuous-Time Homogeneous Markov Chain (CTMC). The 
 <p align="center">
   <em>Left: State transition rate matrix Q | Right: Convergence to steady-state probabilities</em>
 </p>
+
+## Documentation
+
+For detailed information about the system design, mathematical modeling, and analysis, please refer to the comprehensive report in the `report/` folder.
