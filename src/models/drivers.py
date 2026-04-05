@@ -1,7 +1,10 @@
 import random
 import math
+import logging
 from models.state import State
 from config import WORK_TO_REST_RATE, REST_TO_WORK_RATE, MEAN_WORK_TIME_SEC, MEAN_REST_TIME_SEC
+
+logger = logging.getLogger(__name__)
 
 class Driver:
     """
@@ -57,7 +60,7 @@ class Driver:
         # Schedule next transition
         self._schedule_next_transition(current_time)
         
-        print(f"Driver {self.driver_id}: {'work' if self.is_working else 'rest'} transition at time {current_time:.2f}")
+        logger.debug(f"Driver {self.driver_id}: {'work' if self.is_working else 'rest'} transition at time {current_time:.2f}")
     
     def get_next_transition_time(self) -> float:
         """Get time of next scheduled transition"""

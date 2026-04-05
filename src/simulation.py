@@ -1,5 +1,6 @@
 import sys
 import os
+import logging
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
@@ -12,6 +13,8 @@ from models.event import Event as MapEvent
 from config import ZONES, SERVICE_RATES, SIM_END_SEC, ACCEPTANCE_PROB, WORK_TO_REST_RATE, REST_TO_WORK_RATE
 from models.state import State
 from map import Map
+
+logger = logging.getLogger(__name__)
 
 
 class Simulation:
@@ -174,9 +177,9 @@ class Simulation:
     
     def run(self):
         """Run simulation using CTMC approach with Map events"""
-        print("=== Simulation Started (CTMC approach) ===")
-        print(f"Initial state: {self.current_state}")
-        print(f"Total possible states: {len(self.map.states)}")
+        logger.info("=== Simulation Started (CTMC approach) ===")
+        logger.info(f"Initial state: {self.current_state}")
+        logger.info(f"Total possible states: {len(self.map.states)}")
         
         iteration = 0
         
@@ -199,7 +202,7 @@ class Simulation:
             old_state_id = self.map.find_state_id(self.current_state)
             new_state_id = next_event.to_state_id
             
-            print(f"Time {self.current_time:.2f}: {next_event.event_text} (State {old_state_id} -> {new_state_id})")
+            logger.debug(f"Time {self.current_time:.2f}: {next_event.event_text} (State {old_state_id} -> {new_state_id})")
             
             self.current_state = next_event.to_state
             self.last_state_id = new_state_id
@@ -213,46 +216,49 @@ class Simulation:
         plt.ioff()
         plt.savefig('state_convergence.png', dpi=300, bbox_inches='tight')
         
-        print("=== Simulation Completed ===")
+        logger.info("=== Simulation Completed ===")
         self._print_statistics()
     
     def _print_statistics(self):
         """Print simulation statistics"""
-        print(f"\nFinal state: {self.current_state}")
-        
-        print(f"\nStatistics:")
-        print(f"Total events: {self.statistics['total_events']}")
-        print(f"Request arrivals: {self.statistics['request_arrivals']}")
-        print(f"Accepted requests: {self.statistics['accepted_requests']}")
-        print(f"Rejected requests: {self.statistics['rejected_requests']}")
-        print(f"Completed rides: {self.statistics['completed_rides']}")
-        print(f"Driver online transitions: {self.statistics['driver_online']}")
-        print(f"Driver offline transitions: {self.statistics['driver_offline']}")
-        
+        logger.info(f"\nFinal state: {self.current_state}")
+
+        logger.info(f"\nStatistics:")
+        logger.info(f"Total events: {self.statistics['total_events']}")
+        logger.info(f"Request arrivals: {self.statistics['request_arrivals']}")
+        logger.info(f"Accepted requests: {self.statistics['accepted_requests']}")
+        logger.info(f"Rejected requests: {self.statistics['rejected_requests']}")
+        logger.info(f"Completed rides: {self.statistics['completed_rides']}")
+        logger.info(f"Driver online transitions: {self.statistics['driver_online']}")
+        logger.info(f"Driver offline transitions: {self.statistics['driver_offline']}")
+
         if self.statistics['request_arrivals'] > 0:
             acceptance_rate = self.statistics['accepted_requests'] / self.statistics['request_arrivals'] * 100
-            print(f"Acceptance rate: {acceptance_rate:.1f}%")
-        
-        print(f"\nFinal driver distribution:")
+            logger.info(f"Acceptance rate: {acceptance_rate:.1f}%")
+
+        logger.info(f"\nFinal driver distribution:")
         total_online = 0
         total_offline = 0
-        
+
         for i, zone in enumerate(['A', 'B', 'C']):
             zone_online = sum(self.current_state.matrix_drivers_online[i])
             zone_offline = self.current_state.matrix_drivers_offline[i][i]
             total_online += zone_online
             total_offline += zone_offline
-            print(f"Zone {zone}: {zone_online} online, {zone_offline} offline")
-        
-        print(f"Total: {total_online} online, {total_offline} offline")
-        
-        print(f"\nState time distribution (% of total time):")
+            logger.info(f"Zone {zone}: {zone_online} online, {zone_offline} offline")
+
+        logger.info(f"Total: {total_online} online, {total_offline} offline")
+
+        logger.info(f"\nState time distribution (% of total time):")
         total_time = sum(self.state_times.values())
         for state_id in sorted(self.state_times.keys()):
             percentage = (self.state_times[state_id] / total_time) * 100
-            print(f"State {state_id}: {percentage:.2f}%")
+            logger.info(f"State {state_id}: {percentage:.2f}%")
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.WARNING)
+    logging.getLogger('__main__').setLevel(logging.INFO)
+    logging.getLogger('models').setLevel(logging.INFO)
     sim = Simulation()
     sim.run()

@@ -2,6 +2,7 @@
 
 import sys
 import os
+import logging
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
@@ -15,6 +16,8 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from itertools import combinations
 
+logger = logging.getLogger(__name__)
+
 
 class Map:
     def __init__(self):
@@ -25,13 +28,13 @@ class Map:
             'OfflineDriver',
         ]
         self.total_drivers = ZONES["A"]["num_drivers"] + ZONES["B"]["num_drivers"] + ZONES["C"]["num_drivers"]
-        print("Total drivers: ", self.total_drivers)
+        logger.debug(f"Total drivers: {self.total_drivers}")
         
         self.initial_state = State([self.total_drivers, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0]) #For making the map, put all the drivers in first zone
         self.states = self._states_generation()
         
         self.zones = ZONES.keys()
-        print("Zones: ", self.zones)
+        logger.debug(f"Zones: {self.zones}")
         self.zone_id = {
             "A": 0,
             "B": 1,
@@ -68,7 +71,7 @@ class Map:
             state = State(onlines=onlines, offline=offline)
             all_states.append(state)
         
-        print("Number of states: ", len(all_states))
+        logger.debug(f"Number of states: {len(all_states)}")
         dict_states = {}
         for i, state in enumerate(all_states):
             dict_states[i] = state
@@ -84,7 +87,7 @@ class Map:
     
     def check_possible_events(self, state: State):
         """Check possible events for a state"""
-        print("Checking possible events for state: ", state)
+        logger.debug(f"Checking possible events for state: {state}")
         state_id = self.find_state_id(state)
         all_possible_events = []
         for event in self.events:
@@ -197,6 +200,9 @@ class Map:
         
         
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.WARNING)
+    logging.getLogger('__main__').setLevel(logging.DEBUG)
+    logging.getLogger('models').setLevel(logging.DEBUG)
     map = Map()
     map.visualize_map()
     # states = map.states

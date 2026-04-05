@@ -1,4 +1,7 @@
+import logging
 from models.state import State
+
+logger = logging.getLogger(__name__)
 
 
 class Request:
@@ -14,7 +17,7 @@ class Request:
     def start_request(self, state: State):
         """ To start the request """
         copy_state = state.copy()
-        print("Starting request from ", self.origin_zone, " to ", self.destination_zone)
+        logger.debug(f"Starting request from {self.origin_zone} to {self.destination_zone}")
         copy_state.matrix_drivers_online[self.zone_id[self.origin_zone]][self.zone_id[self.origin_zone]] -= 1
         copy_state.matrix_drivers_online[self.zone_id[self.origin_zone]][self.zone_id[self.destination_zone]] += 1
         return copy_state
@@ -22,7 +25,7 @@ class Request:
     def end_request(self, state: State):
         """ To end the request """
         copy_state = state.copy()
-        print("Ending request from ", self.origin_zone, " to ", self.destination_zone)
+        logger.debug(f"Ending request from {self.origin_zone} to {self.destination_zone}")
         copy_state.matrix_drivers_online[self.zone_id[self.origin_zone]][self.zone_id[self.destination_zone]] -= 1
         copy_state.matrix_drivers_online[self.zone_id[self.destination_zone]][self.zone_id[self.destination_zone]] += 1
         return copy_state

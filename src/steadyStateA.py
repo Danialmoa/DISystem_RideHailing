@@ -1,12 +1,15 @@
 import numpy as np
 import sys
 import os
+import logging
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
 from map import Map
 from config import ZONES, SERVICE_RATES, WORK_TO_REST_RATE, REST_TO_WORK_RATE, ACCEPTANCE_PROB
+
+logger = logging.getLogger(__name__)
 
 def build_Q_matrix(map_obj):
     n_states = len(map_obj.states)
@@ -36,7 +39,7 @@ def get_event_rate(event, map_obj):
     if event.event_type == "StartRequest":
         origin = event.info["origin_zone"]
         destination = event.info["destination_zone"]
-        print(f"Start request: {origin} -> {destination}", ZONES[origin]["arrival_lambdas"][destination] * ACCEPTANCE_PROB)
+        logger.debug(f"Start request: {origin} -> {destination} rate={ZONES[origin]['arrival_lambdas'][destination] * ACCEPTANCE_PROB}")
         return ZONES[origin]["arrival_lambdas"][destination] * ACCEPTANCE_PROB
     
     elif event.event_type == "EndRequest":
@@ -62,13 +65,16 @@ def solve_steady_state(Q):
     return pi
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.WARNING)
+    logging.getLogger('__main__').setLevel(logging.INFO)
+    logging.getLogger('models').setLevel(logging.INFO)
     map_obj = Map()
-    print(f"Number of states: {len(map_obj.states)}")
-    
+    logger.info(f"Number of states: {len(map_obj.states)}")
+
     Q = build_Q_matrix(map_obj)
-    print(f"Q matrix shape: {Q.shape}")
-    print(Q)
-    
+    logger.info(f"Q matrix shape: {Q.shape}")
+    logger.info(f"\n{Q}")
+
     pi = solve_steady_state(Q)
-    print(f"Steady-state probabilities: {pi}")
-    print(f"Sum of probabilities: {np.sum(pi)}")
+    logger.info(f"Steady-state probabilities: {pi}")
+    logger.info(f"Sum of probabilities: {np.sum(pi)}")
