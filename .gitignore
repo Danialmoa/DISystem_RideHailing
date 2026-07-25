@@ -75,3 +75,6 @@ logs/
 # Temporary files
 *.tmp
 *.temp
+
+# Stray generated figure at repo root (kept version lives in figures/)
+/state_graph.png
